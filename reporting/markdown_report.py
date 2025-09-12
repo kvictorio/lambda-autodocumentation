@@ -20,14 +20,14 @@ def parse_ip_permission(rule):
         parsed_rules.append({ 'protocol': protocol, 'port_range': port_range, 'source_dest': source })
     return parsed_rules
 
-def generate_text_report(env_name, env_data, all_resources):
+def generate_text_report(env_name, env_data, all_resources, sg_cross_reference):
     """
     Generates a structured Markdown report for a SINGLE environment,
-    and handles reporting for services with IAM access errors.
+    including a cross-reference for Security Group assignments.
     """
     report = [f"## ENVIRONMENT: `{env_name.upper()}`\n"]
     
-    ec2_maps = all_resources.get('ec2', {}) # Safely get the ec2 results
+    ec2_maps = all_resources.get('ec2', {})
     subnet_map = ec2_maps.get('subnet_map', {})
     sg_map = ec2_maps.get('sg_map', {})
 
@@ -88,8 +88,8 @@ def generate_text_report(env_name, env_data, all_resources):
             report.append(f"| **{item['Name']}** | `{item['InstanceId']}` | {subnet_name} | {', '.join(sg_names)} |")
     else:
         report.append("_No EC2 Instances found in this environment._")
-    
-    # --- RDS Section ---
+
+    # --- Relational Databases (RDS) Section ---
     report.append("\n### Relational Databases (RDS)\n")
     if all_resources.get('rds', {}).get('error'):
         report.append(f"_{all_resources['rds']['error']}_")
@@ -102,7 +102,19 @@ def generate_text_report(env_name, env_data, all_resources):
             report.append(f"| **{item['Name']}** | {item['Engine']} | `{item['InstanceClass']}` | `{item['Endpoint']}` | {subnets} | {sgs} |")
     else:
         report.append("_No RDS Instances found in this environment._")
-    
+
+    # --- API Gateways Section ---
+    report.append("\n### API Gateways\n")
+    if all_resources.get('apigateway', {}).get('error'):
+        report.append(f"_{all_resources['apigateway']['error']}_")
+    elif env_data.get('api_gateways'):
+        for item in sorted(env_data['api_gateways'], key=lambda x: x['Name']):
+            report.append(f"* **{item['Name']}** (`{item['ApiId']}`, Type: `{item['ProtocolType']}`)")
+            if item.get('Routes'): report.append(f"  * **Routes:** {len(item['Routes'])}")
+            if item.get('Authorizers'): report.append(f"  * **Authorizers:** {', '.join(item['Authorizers'])}")
+    else:
+        report.append("_No API Gateways found in this environment._")
+
     # --- Lambda Functions Section ---
     report.append("\n### Lambda Functions\n")
     if all_resources.get('lambda', {}).get('error'):
@@ -121,42 +133,6 @@ def generate_text_report(env_name, env_data, all_resources):
     else:
         report.append("_No Lambda Functions found in this environment._")
 
-    # --- Security Group Rules Section ---
-    report.append("\n### Security Group Rules\n")
-    if all_resources.get('ec2', {}).get('error'):
-        report.append(f"_{all_resources['ec2']['error']}_")
-    elif env_data.get('security_groups'):
-        report.append("| Security Group | Direction | Protocol | Port Range | Source / Destination |")
-        report.append("| :--- | :--- | :--- | :--- | :--- |")
-        for item in sorted(env_data['security_groups'], key=lambda x: x['Name']):
-            sg_name_full = f"**{item['Name']}** (`{item['GroupId']}`)"
-            is_first_rule_for_group = True
-            all_rules = []
-            for rule in item.get('InboundRules', []):
-                for parsed in parse_ip_permission(rule): all_rules.append({'direction': 'Inbound', **parsed})
-            if not item.get('InboundRules'): all_rules.append({'direction': 'Inbound', 'protocol': 'N/A', 'port_range': 'N/A', 'source_dest': 'No rules defined'})
-            for rule in item.get('OutboundRules', []):
-                for parsed in parse_ip_permission(rule): all_rules.append({'direction': 'Outbound', **parsed})
-            if not item.get('OutboundRules'): all_rules.append({'direction': 'Outbound', 'protocol': 'N/A', 'port_range': 'N/A', 'source_dest': 'No rules defined'})
-            for rule in all_rules:
-                sg_name_to_display = sg_name_full if is_first_rule_for_group else ""
-                report.append(f"| {sg_name_to_display} | {rule['direction']} | {rule['protocol']} | {rule['port_range']} | {rule['source_dest']} |")
-                is_first_rule_for_group = False
-    else:
-        report.append("_No Security Groups found in this environment._")
-
-    # --- API Gateways Section ---
-    report.append("\n### API Gateways\n")
-    if all_resources.get('apigateway', {}).get('error'):
-        report.append(f"_{all_resources['apigateway']['error']}_")
-    elif env_data.get('api_gateways'):
-        for item in sorted(env_data['api_gateways'], key=lambda x: x['Name']):
-            report.append(f"* **{item['Name']}** (`{item['ApiId']}`, Type: `{item['ProtocolType']}`)")
-            if item.get('Routes'): report.append(f"  * **Routes:** {len(item['Routes'])}")
-            if item.get('Authorizers'): report.append(f"  * **Authorizers:** {', '.join(item['Authorizers'])}")
-    else:
-        report.append("_No API Gateways found in this environment._")
-
     # --- S3 Buckets Section ---
     report.append("\n### S3 Buckets\n")
     if all_resources.get('s3', {}).get('error'):
@@ -167,4 +143,33 @@ def generate_text_report(env_name, env_data, all_resources):
     else:
         report.append("_No S3 Buckets found in this environment._")
     
+    # --- Security Group Rules Section ---
+    report.append("\n### Security Group Rules\n")
+    if all_resources.get('ec2', {}).get('error'):
+        report.append(f"_{all_resources['ec2']['error']}_")
+    elif env_data.get('security_groups'):
+        report.append("| Security Group | Assigned To | Direction | Protocol | Port Range | Source / Destination |")
+        report.append("| :--- | :--- | :--- | :--- | :--- | :--- |")
+        for item in sorted(env_data['security_groups'], key=lambda x: x['Name']):
+            sg_name_full = f"**{item['Name']}** (`{item['GroupId']}`)"
+            
+            assignments = sg_cross_reference.get(item['GroupId'], ["_Not in use_"])
+            assignments_str = "<br>".join(assignments)
+
+            is_first_rule_for_group = True
+            all_rules = []
+            for rule in item.get('InboundRules', []):
+                for parsed in parse_ip_permission(rule): all_rules.append({'direction': 'Inbound', **parsed})
+            if not item.get('InboundRules'): all_rules.append({'direction': 'Inbound', 'protocol': 'N/A', 'port_range': 'N/A', 'source_dest': 'No rules defined'})
+            for rule in item.get('OutboundRules', []):
+                for parsed in parse_ip_permission(rule): all_rules.append({'direction': 'Outbound', **parsed})
+            if not item.get('OutboundRules'): all_rules.append({'direction': 'Outbound', 'protocol': 'N/A', 'port_range': 'N/A', 'source_dest': 'No rules defined'})
+            
+            for i, rule in enumerate(all_rules):
+                sg_name_to_display = sg_name_full if i == 0 else ""
+                assignments_to_display = assignments_str if i == 0 else ""
+                report.append(f"| {sg_name_to_display} | {assignments_to_display} | {rule['direction']} | {rule['protocol']} | {rule['port_range']} | {rule['source_dest']} |")
+    else:
+        report.append("_No Security Groups found in this environment._")
+
     return "\n".join(report)

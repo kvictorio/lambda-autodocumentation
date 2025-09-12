@@ -65,7 +65,25 @@ def lambda_handler(event, context):
             if env not in categorized_data: categorized_data[env] = {}
             if category_name not in categorized_data[env]: categorized_data[env][category_name] = []
             categorized_data[env][category_name].append(resource)
-
+    
+    #Securitygroup cross reference
+    sg_cross_reference = {}
+    # Cross-reference EC2 instances
+    for instance in resource_map['instances']:
+        for sg_id in instance.get('SecurityGroups', []):
+            if sg_id not in sg_cross_reference: sg_cross_reference[sg_id] = []
+            sg_cross_reference[sg_id].append(f"EC2: {instance['Name']}")
+    # Cross-reference RDS instances
+    for rds in resource_map['rds_instances']:
+        for sg_id in rds.get('SecurityGroupIds', []):
+            if sg_id not in sg_cross_reference: sg_cross_reference[sg_id] = []
+            sg_cross_reference[sg_id].append(f"RDS: {rds['Name']}")
+    # Cross-reference Lambda functions
+    for func in resource_map['functions']:
+        for sg_id in func.get('SecurityGroupIds', []):
+            if sg_id not in sg_cross_reference: sg_cross_reference[sg_id] = []
+            sg_cross_reference[sg_id].append(f"Lambda: {func['Name']}")
+            
     # 3. Generate and upload reports
     main_readme_content = [f"# AWS Infrastructure Report", f"_Generated on {now.strftime('%Y-%m-%d %H:%M:%S')}_", "\n## Discovered Environments\n"]
     
@@ -76,9 +94,8 @@ def lambda_handler(event, context):
         print(f"Generating documents for environment: {env_name}")
         main_readme_content.append(f"* [{env_name.upper()}](./{env_name}-documentation.md)")
 
-        # Pass the full resource dictionary to the report generator
-        report_content = generate_text_report(env_name, env_data, all_resources)
-        # Pass only the necessary security group data to the diagram generator
+        report_content = generate_text_report(env_name, env_data, all_resources, sg_cross_reference)
+        
         diagram_sg_data = all_resources['ec2'].get('security_groups', [])
         diagram_content = generate_mermaid_diagram(env_name, env_data, diagram_sg_data)
 
