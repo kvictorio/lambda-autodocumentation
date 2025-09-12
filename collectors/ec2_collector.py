@@ -1,12 +1,11 @@
 # collectors/ec2_collector.py
 import boto3
-from utils import get_environment_from_name # We will create utils.py next
+from utils import get_environment_from_name
 
 def get_ec2_data():
     ec2_client = boto3.client('ec2')
     instances_data = []
     sg_data = []
-    # ... (code for get_ec2_data remains the same)
     paginator = ec2_client.get_paginator('describe_instances')
     for page in paginator.paginate(Filters=[{'Name': 'instance-state-name', 'Values': ['running', 'stopped']}]):
         for reservation in page['Reservations']:
@@ -15,9 +14,12 @@ def get_ec2_data():
                 instances_data.append({
                     'Name': name,
                     'InstanceId': instance['InstanceId'],
+                    'SubnetId': instance.get('SubnetId', 'N/A'), # <-- ADD THIS LINE
                     'SecurityGroups': [sg['GroupId'] for sg in instance.get('SecurityGroups', [])],
                     'Environment': get_environment_from_name(name, instance.get('Tags', []))
                 })
+    
+    # The rest of the function for security groups remains the same...
     paginator = ec2_client.get_paginator('describe_security_groups')
     for page in paginator.paginate():
         for sg in page['SecurityGroups']:

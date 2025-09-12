@@ -49,6 +49,10 @@ def generate_text_report(env_name, env_data):
         report.append("\n### EC2 Instances\n")
         for item in sorted(env_data['instances'], key=lambda x: x['Name']):
             report.append(f"* **{item['Name']}** (`{item['InstanceId']}`)")
+            report.append(f"  * **Subnet:** `{item.get('SubnetId', 'N/A')}`")
+            if item.get('SecurityGroups'):
+                sg_links = [f"`{sg}`" for sg in item['SecurityGroups']]
+                report.append(f"  * **Security Groups:** {', '.join(sg_links)}")
 
     # --- Security Groups Section ---
     if env_data.get('security_groups'):
