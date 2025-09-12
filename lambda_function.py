@@ -8,8 +8,11 @@ import boto3
 from collectors.ec2_collector import get_ec2_data
 from collectors.lambda_collector import get_lambda_data
 from collectors.s3_collector import get_s3_data
+from collectors.apigateway_collector import get_apigateway_data
 from reporting.markdown_report import generate_text_report
 from reporting.mermaid_diagram import generate_mermaid_diagram
+from collectors.vpc_collector import get_vpc_data
+
 
 # Environment variable for the S3 bucket
 S3_BUCKET_NAME = os.environ.get('S3_BUCKET_NAME')
@@ -36,7 +39,8 @@ def lambda_handler(event, context):
     ec2_resources = get_ec2_data()
     lambda_resources = get_lambda_data()
     s3_resources = get_s3_data()
-    apigateway_resources = get_apigateway_data() # <-- CALL THE NEW FUNCTION
+    apigateway_resources = get_apigateway_data()
+    vpc_resources = get_vpc_data()
     
     # 2. Consolidate and categorize all resources
     categorized_data = {}
@@ -45,7 +49,8 @@ def lambda_handler(event, context):
         ('security_groups', ec2_resources['security_groups']),
         ('functions', lambda_resources['functions']),
         ('s3_buckets', s3_resources['buckets']),
-        ('api_gateways', apigateway_resources['apis']) # <-- ADD THE NEW DATA
+        ('api_gateways', apigateway_resources['apis']),
+        ('vpcs', vpc_resources['vpcs'])
     ]
 
     for category_name, resource_list in all_resources_list:
