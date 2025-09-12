@@ -9,7 +9,7 @@ from collectors.ec2_collector import get_ec2_data
 from collectors.lambda_collector import get_lambda_data
 from collectors.s3_collector import get_s3_data
 from collectors.apigateway_collector import get_apigateway_data
-from reporting.html_report import generate_text_report
+from reporting.markdown_report import generate_text_report
 from reporting.mermaid_diagram import generate_mermaid_diagram
 from collectors.vpc_collector import get_vpc_data
 
@@ -71,7 +71,7 @@ def lambda_handler(event, context):
         report_content = generate_text_report(env_name, env_data, ec2_resources)
         diagram_content = generate_mermaid_diagram(env_name, env_data, ec2_resources['security_groups'])
 
-        s3_report_key = f'reports/{timestamp}/{env_name}-documentation.html'
+        s3_report_key = f'reports/{timestamp}/{env_name}-documentation.md'
         s3_diagram_key = f'reports/{timestamp}/{env_name}-diagram.mmd'
 
         upload_to_s3(report_content, S3_BUCKET_NAME, s3_report_key)
