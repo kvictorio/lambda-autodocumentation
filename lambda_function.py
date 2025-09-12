@@ -9,10 +9,9 @@ from collectors.ec2_collector import get_ec2_data
 from collectors.lambda_collector import get_lambda_data
 from collectors.s3_collector import get_s3_data
 from collectors.apigateway_collector import get_apigateway_data
+from collectors.vpc_collector import get_vpc_data
 from reporting.markdown_report import generate_text_report
 from reporting.mermaid_diagram import generate_mermaid_diagram
-from collectors.vpc_collector import get_vpc_data
-
 
 # Environment variable for the S3 bucket
 S3_BUCKET_NAME = os.environ.get('S3_BUCKET_NAME')
@@ -35,27 +34,31 @@ def lambda_handler(event, context):
     now = datetime.now()
     timestamp = now.strftime("%Y-%m-%d")
 
-    # 1. Fetch data from all services
-    ec2_resources = get_ec2_data()
-    lambda_resources = get_lambda_data()
-    s3_resources = get_s3_data()
-    apigateway_resources = get_apigateway_data()
-    vpc_resources = get_vpc_data()
+    # 1. Fetch data from all services into a single dictionary
+    all_resources = {
+        'ec2': get_ec2_data(),
+        'lambda': get_lambda_data(),
+        's3': get_s3_data(),
+        'apigateway': get_apigateway_data(),
+        'vpc': get_vpc_data()
+    }
     
-    # 2. Consolidate and categorize all resources
+    # 2. Consolidate and categorize all resources, safely getting lists
     categorized_data = {}
-    all_resources_list = [
-        ('instances', ec2_resources['instances']),
-        ('security_groups', ec2_resources['security_groups']),
-        ('functions', lambda_resources['functions']),
-        ('s3_buckets', s3_resources['buckets']),
-        ('api_gateways', apigateway_resources['apis']),
-        ('vpcs', vpc_resources['vpcs'])
-    ]
+    resource_map = {
+        'instances': all_resources['ec2'].get('instances', []),
+        'security_groups': all_resources['ec2'].get('security_groups', []),
+        'functions': all_resources['lambda'].get('functions', []),
+        's3_buckets': all_resources['s3'].get('buckets', []),
+        'api_gateways': all_resources['apigateway'].get('apis', []),
+        'vpcs': all_resources['vpc'].get('vpcs', [])
+    }
 
-    for category_name, resource_list in all_resources_list:
+    for category_name, resource_list in resource_map.items():
+        if not resource_list: # Skip if the list is empty (e.g., due to an error or no resources)
+            continue
         for resource in resource_list:
-            env = resource['Environment']
+            env = resource.get('Environment', 'no-category')
             if env not in categorized_data: categorized_data[env] = {}
             if category_name not in categorized_data[env]: categorized_data[env][category_name] = []
             categorized_data[env][category_name].append(resource)
@@ -63,13 +66,18 @@ def lambda_handler(event, context):
     # 3. Generate and upload reports
     main_readme_content = [f"# AWS Infrastructure Report", f"_Generated on {now.strftime('%Y-%m-%d %H:%M:%S')}_", "\n## Discovered Environments\n"]
     
+    if not categorized_data:
+        main_readme_content.append("\n_No resources were found across the tracked environments, or access was denied for all services._")
+
     for env_name, env_data in sorted(categorized_data.items()):
         print(f"Generating documents for environment: {env_name}")
         main_readme_content.append(f"* [{env_name.upper()}](./{env_name}-documentation.md)")
 
-        # Pass the new maps to the report generator
-        report_content = generate_text_report(env_name, env_data, ec2_resources)
-        diagram_content = generate_mermaid_diagram(env_name, env_data, ec2_resources['security_groups'])
+        # Pass the full resource dictionary to the report generator
+        report_content = generate_text_report(env_name, env_data, all_resources)
+        # Pass only the necessary security group data to the diagram generator
+        diagram_sg_data = all_resources['ec2'].get('security_groups', [])
+        diagram_content = generate_mermaid_diagram(env_name, env_data, diagram_sg_data)
 
         s3_report_key = f'reports/{timestamp}/{env_name}-documentation.md'
         s3_diagram_key = f'reports/{timestamp}/{env_name}-diagram.mmd'
