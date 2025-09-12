@@ -114,8 +114,25 @@ def generate_text_report(env_name, env_data, ec2_maps):
                 for lb in sorted(vpc['LoadBalancers'], key=lambda x: x['Name']):
                     report.append(f"    * **{lb['Name']}** (Type: `{lb['Type']}`)")
                     report.append(f"      * DNS: `{lb['DNSName']}`")
+                    
+                    # Create Listener/Target table
+                    report.append("      * **Configuration:**")
+                    report.append("        | Listener (Port / Protocol) | Target Group | Target ID | Health Status |")
+                    report.append("        | :--- | :--- | :--- | :--- |")
                     for listener in lb['Listeners']:
-                        report.append(f"      * Listener: Port `{listener['Port']}` ({listener['Protocol']})")
+                        listener_text = f"`{listener['Port']}` ({listener['Protocol']})"
+                        if not listener['TargetGroups']:
+                             report.append(f"        | {listener_text} | *No Target Group* | | |")
+                        else:
+                            for i, tg in enumerate(listener['TargetGroups']):
+                                listener_to_show = listener_text if i == 0 else ""
+                                if not tg['Targets']:
+                                    report.append(f"        | {listener_to_show} | {tg['Name']} | *No Targets Registered* | |")
+                                else:
+                                    for j, target in enumerate(tg['Targets']):
+                                        listener_and_tg_to_show = listener_text if j == 0 else ""
+                                        tg_to_show = tg['Name'] if j == 0 else ""
+                                        report.append(f"        | {listener_and_tg_to_show} | {tg_to_show} | `{target['Id']}` | {target['Health']} |")
 
             if vpc.get('RouteTables'):
                 report.append("  * **Route Tables:**")
@@ -139,9 +156,26 @@ def generate_text_report(env_name, env_data, ec2_maps):
     # --- Lambda Functions Section ---
     if env_data.get('functions'):
         report.append("\n### Lambda Functions\n")
+        report.append("| Function Name | Runtime | VPC Connected | Subnets | Security Groups |")
+        report.append("| :--- | :--- | :--- | :--- | :--- |")
+        
         for item in sorted(env_data['functions'], key=lambda x: x['Name']):
-            report.append(f"* **{item['Name']}** (Runtime: `{item.get('Runtime', 'N/A')}`)")
-
+            name = f"**{item['Name']}**"
+            runtime = f"`{item.get('Runtime', 'N/A')}`"
+            
+            if item.get('VpcId'):
+                vpc_connected = "Yes"
+                # Look up subnet and security group names
+                subnet_names = [subnet_map.get(s_id, s_id) for s_id in item.get('SubnetIds', [])]
+                sg_names = [sg_map.get(sg_id, sg_id) for sg_id in item.get('SecurityGroupIds', [])]
+                subnets_list = ", ".join(subnet_names)
+                sgs_list = ", ".join(sg_names)
+            else:
+                vpc_connected = "No"
+                subnets_list = "N/A"
+                sgs_list = "N/A"
+            
+            report.append(f"| {name} | {runtime} | {vpc_connected} | {subnets_list} | {sgs_list} |")
     # --- S3 Buckets Section ---
     if env_data.get('s3_buckets'):
         report.append("\n### S3 Buckets\n")
