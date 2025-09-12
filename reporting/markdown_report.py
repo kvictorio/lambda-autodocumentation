@@ -88,19 +88,21 @@ def generate_text_report(env_name, env_data, all_resources):
             report.append(f"| **{item['Name']}** | `{item['InstanceId']}` | {subnet_name} | {', '.join(sg_names)} |")
     else:
         report.append("_No EC2 Instances found in this environment._")
-
-    # --- API Gateways Section ---
-    report.append("\n### API Gateways\n")
-    if all_resources.get('apigateway', {}).get('error'):
-        report.append(f"_{all_resources['apigateway']['error']}_")
-    elif env_data.get('api_gateways'):
-        for item in sorted(env_data['api_gateways'], key=lambda x: x['Name']):
-            report.append(f"* **{item['Name']}** (`{item['ApiId']}`, Type: `{item['ProtocolType']}`)")
-            if item.get('Routes'): report.append(f"  * **Routes:** {len(item['Routes'])}")
-            if item.get('Authorizers'): report.append(f"  * **Authorizers:** {', '.join(item['Authorizers'])}")
+    
+    # --- RDS Section ---
+    report.append("\n### Relational Databases (RDS)\n")
+    if all_resources.get('rds', {}).get('error'):
+        report.append(f"_{all_resources['rds']['error']}_")
+    elif env_data.get('rds_instances'):
+        report.append("| Instance Name | Engine | Size | Endpoint | Subnets | Security Groups |")
+        report.append("| :--- | :--- | :--- | :--- | :--- | :--- |")
+        for item in sorted(env_data['rds_instances'], key=lambda x: x['Name']):
+            subnets = ", ".join([subnet_map.get(s_id, s_id) for s_id in item['SubnetIds']])
+            sgs = ", ".join([sg_map.get(sg_id, sg_id) for sg_id in item['SecurityGroupIds']])
+            report.append(f"| **{item['Name']}** | {item['Engine']} | `{item['InstanceClass']}` | `{item['Endpoint']}` | {subnets} | {sgs} |")
     else:
-        report.append("_No API Gateways found in this environment._")
-
+        report.append("_No RDS Instances found in this environment._")
+    
     # --- Lambda Functions Section ---
     report.append("\n### Lambda Functions\n")
     if all_resources.get('lambda', {}).get('error'):
@@ -119,16 +121,6 @@ def generate_text_report(env_name, env_data, all_resources):
     else:
         report.append("_No Lambda Functions found in this environment._")
 
-    # --- S3 Buckets Section ---
-    report.append("\n### S3 Buckets\n")
-    if all_resources.get('s3', {}).get('error'):
-        report.append(f"_{all_resources['s3']['error']}_")
-    elif env_data.get('s3_buckets'):
-        for item in sorted(env_data['s3_buckets'], key=lambda x: x['Name']):
-            report.append(f"* **{item['Name']}**")
-    else:
-        report.append("_No S3 Buckets found in this environment._")
-    
     # --- Security Group Rules Section ---
     report.append("\n### Security Group Rules\n")
     if all_resources.get('ec2', {}).get('error'):
@@ -153,4 +145,26 @@ def generate_text_report(env_name, env_data, all_resources):
     else:
         report.append("_No Security Groups found in this environment._")
 
+    # --- API Gateways Section ---
+    report.append("\n### API Gateways\n")
+    if all_resources.get('apigateway', {}).get('error'):
+        report.append(f"_{all_resources['apigateway']['error']}_")
+    elif env_data.get('api_gateways'):
+        for item in sorted(env_data['api_gateways'], key=lambda x: x['Name']):
+            report.append(f"* **{item['Name']}** (`{item['ApiId']}`, Type: `{item['ProtocolType']}`)")
+            if item.get('Routes'): report.append(f"  * **Routes:** {len(item['Routes'])}")
+            if item.get('Authorizers'): report.append(f"  * **Authorizers:** {', '.join(item['Authorizers'])}")
+    else:
+        report.append("_No API Gateways found in this environment._")
+
+    # --- S3 Buckets Section ---
+    report.append("\n### S3 Buckets\n")
+    if all_resources.get('s3', {}).get('error'):
+        report.append(f"_{all_resources['s3']['error']}_")
+    elif env_data.get('s3_buckets'):
+        for item in sorted(env_data['s3_buckets'], key=lambda x: x['Name']):
+            report.append(f"* **{item['Name']}**")
+    else:
+        report.append("_No S3 Buckets found in this environment._")
+    
     return "\n".join(report)

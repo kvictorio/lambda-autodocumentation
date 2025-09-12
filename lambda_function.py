@@ -10,6 +10,7 @@ from collectors.lambda_collector import get_lambda_data
 from collectors.s3_collector import get_s3_data
 from collectors.apigateway_collector import get_apigateway_data
 from collectors.vpc_collector import get_vpc_data
+from collectors.rds_collector import get_rds_data
 from reporting.markdown_report import generate_text_report
 from reporting.mermaid_diagram import generate_mermaid_diagram
 
@@ -40,7 +41,8 @@ def lambda_handler(event, context):
         'lambda': get_lambda_data(),
         's3': get_s3_data(),
         'apigateway': get_apigateway_data(),
-        'vpc': get_vpc_data()
+        'vpc': get_vpc_data(),
+        'rds': get_rds_data()
     }
     
     # 2. Consolidate and categorize all resources, safely getting lists
@@ -51,7 +53,8 @@ def lambda_handler(event, context):
         'functions': all_resources['lambda'].get('functions', []),
         's3_buckets': all_resources['s3'].get('buckets', []),
         'api_gateways': all_resources['apigateway'].get('apis', []),
-        'vpcs': all_resources['vpc'].get('vpcs', [])
+        'vpcs': all_resources['vpc'].get('vpcs', []),
+        'rds_instances': all_resources['rds'].get('instances', [])
     }
 
     for category_name, resource_list in resource_map.items():
