@@ -69,20 +69,26 @@ def lambda_handler(event, context):
     #Securitygroup cross reference
     sg_cross_reference = {}
     # Cross-reference EC2 instances
-    for instance in resource_map['instances']:
+    for instance in all_resources['ec2'].get('instances', []):
         for sg_id in instance.get('SecurityGroups', []):
             if sg_id not in sg_cross_reference: sg_cross_reference[sg_id] = []
             sg_cross_reference[sg_id].append(f"EC2: {instance['Name']}")
     # Cross-reference RDS instances
-    for rds in resource_map['rds_instances']:
+    for rds in all_resources['rds'].get('instances', []):
         for sg_id in rds.get('SecurityGroupIds', []):
             if sg_id not in sg_cross_reference: sg_cross_reference[sg_id] = []
             sg_cross_reference[sg_id].append(f"RDS: {rds['Name']}")
     # Cross-reference Lambda functions
-    for func in resource_map['functions']:
+    for func in all_resources['lambda'].get('functions', []):
         for sg_id in func.get('SecurityGroupIds', []):
             if sg_id not in sg_cross_reference: sg_cross_reference[sg_id] = []
             sg_cross_reference[sg_id].append(f"Lambda: {func['Name']}")
+    # Cross-reference Load Balancers
+    for vpc in all_resources['vpc'].get('vpcs', []):
+        for lb in vpc.get('LoadBalancers', []):
+            for sg_id in lb.get('SecurityGroupIds', []):
+                if sg_id not in sg_cross_reference: sg_cross_reference[sg_id] = []
+                sg_cross_reference[sg_id].append(f"Load Balancer: {lb['Name']}")
             
     # 3. Generate and upload reports
     main_readme_content = [f"# AWS Infrastructure Report", f"_Generated on {now.strftime('%Y-%m-%d %H:%M:%S')}_", "\n## Discovered Environments\n"]

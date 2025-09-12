@@ -110,8 +110,12 @@ def generate_text_report(env_name, env_data, all_resources, sg_cross_reference):
     elif env_data.get('api_gateways'):
         for item in sorted(env_data['api_gateways'], key=lambda x: x['Name']):
             report.append(f"* **{item['Name']}** (`{item['ApiId']}`, Type: `{item['ProtocolType']}`)")
-            if item.get('Routes'): report.append(f"  * **Routes:** {len(item['Routes'])}")
-            if item.get('Authorizers'): report.append(f"  * **Authorizers:** {', '.join(item['Authorizers'])}")
+            if item.get('Routes'):
+                report.append("  * **Routes:**")
+                report.append("    | Route / Path | Authorizer | Integration Target |")
+                report.append("    | :--- | :--- | :--- |")
+                for route in item['Routes']:
+                    report.append(f"    | `{route['RouteKey']}` | {route['Authorizer']} | {route['Target']} |")
     else:
         report.append("_No API Gateways found in this environment._")
 

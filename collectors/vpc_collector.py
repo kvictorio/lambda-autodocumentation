@@ -77,8 +77,11 @@ def get_vpc_data():
                     })
 
                 vpcs_data[lb['VpcId']]['LoadBalancers'].append({
-                    'Name': lb['LoadBalancerName'], 'DNSName': lb['DNSName'],
-                    'Type': lb['Type'], 'Listeners': listeners_details
+                    'Name': lb['LoadBalancerName'],
+                    'DNSName': lb['DNSName'],
+                    'Type': lb['Type'],
+                    'SecurityGroupIds': lb.get('SecurityGroups', []),
+                    'Listeners': listeners_details
                 })
                 
         return {'vpcs': list(vpcs_data.values())}
