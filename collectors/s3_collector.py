@@ -5,7 +5,6 @@ from utils import get_environment_from_name
 def get_s3_data():
     s3_client = boto3.client('s3')
     buckets_data = []
-    # ... (code for get_s3_data remains the same)
     response = s3_client.list_buckets()
     for bucket in response['Buckets']:
         bucket_name = bucket['Name']
