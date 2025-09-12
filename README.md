@@ -1,6 +1,6 @@
 # AWS Document Generator
 
-aws document generator uses AWS Lambda fucntion to collect data from your infrastructure and create a html document for you
+aws document generator uses AWS Lambda fucntion to collect data from your infrastructure and create a markdown document for you
 
 It segregates them into seperate files per environment, DEV, QA, TEST, UAT, STAGING, PROD
 You'll have to indicate the environmental variable for the S3 Bucket it will be placed on in lambda
