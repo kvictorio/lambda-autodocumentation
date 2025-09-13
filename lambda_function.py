@@ -4,7 +4,7 @@ import json
 from datetime import datetime
 import boto3
 
-# Import our custom functions from the new modules
+# Import all our custom functions from the new modules
 from collectors.ec2_collector import get_ec2_data
 from collectors.lambda_collector import get_lambda_data
 from collectors.s3_collector import get_s3_data
@@ -54,7 +54,7 @@ def lambda_handler(event, context):
         'neptune': get_neptune_data(),
         'dynamodb': get_dynamodb_data(),
         'elasticache': get_elasticache_data(),
-        'queues': get_queues_data() 
+        'queues': get_queues_data()
     }
     
     # 2. Consolidate and categorize all resources, safely getting lists
@@ -80,7 +80,7 @@ def lambda_handler(event, context):
     }
 
     for category_name, resource_list in resource_map.items():
-        if not resource_list: # Skip if the list is empty (e.g., due to an error or no resources)
+        if not resource_list:
             continue
         for resource in resource_list:
             env = resource.get('Environment', 'no-category')
@@ -88,43 +88,51 @@ def lambda_handler(event, context):
             if category_name not in categorized_data[env]: categorized_data[env][category_name] = []
             categorized_data[env][category_name].append(resource)
     
-    # Securitygroup cross reference
+    # 3. Build cross-reference maps
     sg_cross_reference = {}
-    # Cross-reference EC2 instances
-    for instance in all_resources['ec2'].get('instances', []):
+    for instance in resource_map['instances']:
         for sg_id in instance.get('SecurityGroups', []):
             if sg_id not in sg_cross_reference: sg_cross_reference[sg_id] = []
             sg_cross_reference[sg_id].append(f"EC2: {instance['Name']}")
-    # Cross-reference RDS instances
-    for rds in all_resources['rds'].get('instances', []):
+    for rds in resource_map['rds_instances']:
         for sg_id in rds.get('SecurityGroupIds', []):
             if sg_id not in sg_cross_reference: sg_cross_reference[sg_id] = []
             sg_cross_reference[sg_id].append(f"RDS: {rds['Name']}")
-    # Cross-reference Lambda functions
-    for func in all_resources['lambda'].get('functions', []):
+    for func in resource_map['functions']:
         for sg_id in func.get('SecurityGroupIds', []):
             if sg_id not in sg_cross_reference: sg_cross_reference[sg_id] = []
             sg_cross_reference[sg_id].append(f"Lambda: {func['Name']}")
-    # Cross-reference Load Balancers
-    for vpc in all_resources['vpc'].get('vpcs', []):
+    for vpc in resource_map['vpcs']:
         for lb in vpc.get('LoadBalancers', []):
             for sg_id in lb.get('SecurityGroupIds', []):
                 if sg_id not in sg_cross_reference: sg_cross_reference[sg_id] = []
                 sg_cross_reference[sg_id].append(f"Load Balancer: {lb['Name']}")
-            
-    # 3. Generate and upload reports
-    main_readme_content = [f"# AWS Infrastructure Report", f"_Generated on {now.strftime('%Y-%m-%d %H:%M:%S')}_", "\n## Discovered Environments\n"]
+
+    lambda_db_connections = []
+    db_endpoints = {}
+    for rds in all_resources['rds'].get('instances', []): db_endpoints[rds['Endpoint']] = "rds_" + rds['Name'].replace('-', '_')
+    for neptune in all_resources['neptune'].get('clusters', []): db_endpoints[neptune['Endpoint']] = "neptune_" + neptune['Name'].replace('-', '_')
+    for elasticache in all_resources['elasticache'].get('clusters', []): db_endpoints[elasticache['Endpoint']] = "elasticache_" + elasticache['Name'].replace('-', '_')
     
+    for func in all_resources['lambda'].get('functions', []):
+        func_node_id = "lambda_" + func['Name'].replace('-', '_').replace('.', '_')
+        for key, value in func.get('EnvironmentVariables', {}).items():
+            for endpoint, db_node_id in db_endpoints.items():
+                if endpoint in value:
+                    lambda_db_connections.append({'from': func_node_id, 'to': db_node_id, 'label': key})
+                    break
+            
+    # 4. Generate and upload reports
+    main_readme_content = [f"# AWS Infrastructure Report", f"_Generated on {now.strftime('%Y-%m-%d %H:%M:%S')}_", "\n## Discovered Environments\n"]
     if not categorized_data:
-        main_readme_content.append("\n_No resources were found..._")
+        main_readme_content.append("\n_No resources were found across the tracked environments, or access was denied for all services._")
 
     for env_name, env_data in sorted(categorized_data.items()):
         print(f"Generating documents for environment: {env_name}")
         main_readme_content.append(f"* [{env_name.upper()}](./{env_name}-documentation.md)")
 
         report_content = generate_text_report(env_name, env_data, all_resources, sg_cross_reference)
-        
-        diagram_content = generate_mermaid_diagram(env_name, env_data, all_resources)
+        diagram_content = generate_mermaid_diagram(env_name, env_data, all_resources, lambda_db_connections)
 
         s3_report_key = f'reports/{timestamp}/{env_name}-documentation.md'
         s3_diagram_key = f'reports/{timestamp}/{env_name}-diagram.mmd'

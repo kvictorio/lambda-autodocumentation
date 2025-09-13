@@ -1,18 +1,15 @@
-# collectors/lambda_collector.py
 import boto3
 from botocore.exceptions import ClientError
 from utils import get_environment_from_name
 
 def get_lambda_data():
     """
-    Fetches detailed information about Lambda functions, including their VPC configuration.
-    Includes error handling for missing IAM permissions.
+    Fetches detailed information about Lambda functions, including their VPC configuration
+    and environment variables.
     """
     try:
         lambda_client = boto3.client('lambda')
         functions_data = []
-        
-        # This API call requires lambda:ListFunctions permission
         paginator = lambda_client.get_paginator('list_functions')
         for page in paginator.paginate():
             for function in page['Functions']:
@@ -22,6 +19,7 @@ def get_lambda_data():
                     'Name': function['FunctionName'],
                     'Runtime': function.get('Runtime', 'Container/Unknown'),
                     'Environment': get_environment_from_name(function['FunctionName']),
+                    'EnvironmentVariables': function.get('Environment', {}).get('Variables', {}), # <-- ADDED THIS
                     'VpcId': None,
                     'SubnetIds': [],
                     'SecurityGroupIds': []
