@@ -89,6 +89,39 @@ def generate_text_report(env_name, env_data, all_resources, sg_cross_reference):
     else:
         report.append("_No EC2 Instances found in this environment._")
 
+ # --- Container Services Section ---
+    report.append("\n### Container Services (ECR, EKS, ECS)\n")
+    if all_resources.get('container', {}).get('error'):
+        report.append(f"_{all_resources['container']['error']}_")
+    else:
+        # ECR
+        if env_data.get('ecr_repositories'):
+            report.append("#### Elastic Container Registry (ECR)\n")
+            report.append("| Repository Name | URI |")
+            report.append("| :--- | :--- |")
+            for item in sorted(env_data['ecr_repositories'], key=lambda x: x['Name']):
+                report.append(f"| {item['Name']} | `{item['URI']}` |")
+        
+        # EKS
+        if env_data.get('eks_clusters'):
+            report.append("\n#### Elastic Kubernetes Service (EKS)\n")
+            report.append("| Cluster Name | K8s Version | Status |")
+            report.append("| :--- | :--- | :--- |")
+            for item in sorted(env_data['eks_clusters'], key=lambda x: x['Name']):
+                report.append(f"| **{item['Name']}** | `{item['Version']}` | {item['Status']} |")
+
+        # ECS
+        if env_data.get('ecs_clusters'):
+            report.append("\n#### Elastic Container Service (ECS)\n")
+            for cluster in sorted(env_data['ecs_clusters'], key=lambda x: x['Name']):
+                report.append(f"* **Cluster: {cluster['Name']}** (Status: `{cluster['Status']}`)")
+                if cluster.get('Services'):
+                    report.append("  * **Services:**")
+                    report.append("    | Service Name | Status | Launch Type | Desired Tasks |")
+                    report.append("    | :--- | :--- | :--- | :--- |")
+                    for service in sorted(cluster['Services'], key=lambda x: x['Name']):
+                        report.append(f"    | {service['Name']} | {service['Status']} | `{service['LaunchType']}` | {service['DesiredCount']} |")
+
     # --- Relational Databases (RDS) Section ---
     report.append("\n### Relational Databases (RDS)\n")
     if all_resources.get('rds', {}).get('error'):
@@ -102,6 +135,51 @@ def generate_text_report(env_name, env_data, all_resources, sg_cross_reference):
             report.append(f"| **{item['Name']}** | {item['Engine']} | `{item['InstanceClass']}` | `{item['Endpoint']}` | {subnets} | {sgs} |")
     else:
         report.append("_No RDS Instances found in this environment._")
+
+    # --- Neptune Section ---
+    report.append("\n### Graph Databases (Neptune)\n")
+    if all_resources.get('neptune', {}).get('error'):
+        report.append(f"_{all_resources['neptune']['error']}_")
+    elif env_data.get('neptune_clusters'):
+        for cluster in sorted(env_data['neptune_clusters'], key=lambda x: x['Name']):
+            report.append(f"* **Cluster: {cluster['Name']}** (Engine: `{cluster['Engine']}`, Status: `{cluster['Status']}`)")
+            report.append(f"  * **Writer Endpoint:** `{cluster['Endpoint']}`")
+            report.append(f"  * **Reader Endpoint:** `{cluster['ReaderEndpoint']}`")
+            if cluster.get('Instances'):
+                report.append("  * **Instances:**")
+                report.append("    | Instance Name | Size | Role | Subnets | Security Groups |")
+                report.append("    | :--- | :--- | :--- | :--- | :--- |")
+                for inst in sorted(cluster['Instances'], key=lambda x: x['Name']):
+                    role = "Writer" if inst['IsClusterWriter'] else "Reader"
+                    subnets = ", ".join([subnet_map.get(s_id, s_id) for s_id in inst['SubnetIds']])
+                    sgs = ", ".join([sg_map.get(sg_id, sg_id) for sg_id in inst['SecurityGroupIds']])
+                    report.append(f"    | `{inst['Name']}` | `{inst['InstanceClass']}` | {role} | {subnets} | {sgs} |")
+    else:
+        report.append("_No Neptune Clusters found in this environment._")
+    
+    # --- DynamoDB Section ---
+    report.append("\n### NoSQL Databases (DynamoDB)\n")
+    if all_resources.get('dynamodb', {}).get('error'):
+        report.append(f"_{all_resources['dynamodb']['error']}_")
+    elif env_data.get('dynamodb_tables'):
+        report.append("| Table Name | Status | Item Count | Size (MB) | Billing Mode | Primary Key |")
+        report.append("| :--- | :--- | :--- | :--- | :--- | :--- |")
+        for item in sorted(env_data['dynamodb_tables'], key=lambda x: x['Name']):
+            report.append(f"| **{item['Name']}** | {item['Status']} | {item['ItemCount']:,} | {item['TableSizeMB']} | {item['BillingMode']} | `{item['PrimaryKey']}` |")
+    else:
+        report.append("_No DynamoDB Tables found in this environment._")
+
+    # --- Elasticache Section ---
+    report.append("\n### In-Memory Cache (ElastiCache)\n")
+    if all_resources.get('elasticache', {}).get('error'):
+        report.append(f"_{all_resources['elasticache']['error']}_")
+    elif env_data.get('elasticache_clusters'):
+        report.append("| Cluster Name | Engine | Node Type | Status | Endpoint |")
+        report.append("| :--- | :--- | :--- | :--- | :--- |")
+        for item in sorted(env_data['elasticache_clusters'], key=lambda x: x['Name']):
+            report.append(f"| **{item['Name']}** | {item['Engine']} | `{item['NodeType']}` | {item['Status']} | `{item['Endpoint']}` |")
+    else:
+        report.append("_No ElastiCache Clusters found in this environment._")
 
     # --- API Gateways Section ---
     report.append("\n### API Gateways\n")
@@ -175,5 +253,47 @@ def generate_text_report(env_name, env_data, all_resources, sg_cross_reference):
                 report.append(f"| {sg_name_to_display} | {assignments_to_display} | {rule['direction']} | {rule['protocol']} | {rule['port_range']} | {rule['source_dest']} |")
     else:
         report.append("_No Security Groups found in this environment._")
+    
+    # --- Cognito Section ---
+    report.append("\n### Identity (Cognito)\n")
+    if all_resources.get('cognito', {}).get('error'):
+        report.append(f"_{all_resources['cognito']['error']}_")
+    elif env_data.get('user_pools'):
+        for pool in sorted(env_data['user_pools'], key=lambda x: x['Name']):
+            report.append(f"* **User Pool: {pool['Name']}** (`{pool['Id']}`)")
+            if pool.get('AppClients'):
+                for client in pool['AppClients']:
+                    report.append(f"  * **App Client:** {client['ClientName']} (`{client['ClientId']}`)")
+    else:
+        report.append("_No Cognito User Pools found in this environment._")
+
+    # --- Queues and Streams Sections  ---
+    report.append("\n### Queues & Streams (SQS, Kinesis)\n")
+    if all_resources.get('queues', {}).get('error'):
+        report.append(f"_{all_resources['queues']['error']}_")
+    else:
+        # SQS Queues
+        if env_data.get('sqs_queues'):
+            report.append("#### Simple Queue Service (SQS)\n")
+            report.append("| Queue Name | Type | Approx. Messages |")
+            report.append("| :--- | :--- | :--- |")
+            for item in sorted(env_data['sqs_queues'], key=lambda x: x['Name']):
+                report.append(f"| **{item['Name']}** | {item['Type']} | {item['MessageCount']} |")
+        
+        # Kinesis Data Streams
+        if env_data.get('kinesis_streams'):
+            report.append("\n#### Kinesis Data Streams\n")
+            report.append("| Stream Name | Status | Shard Count |")
+            report.append("| :--- | :--- | :--- |")
+            for item in sorted(env_data['kinesis_streams'], key=lambda x: x['Name']):
+                report.append(f"| **{item['Name']}** | {item['Status']} | {item['Shards']} |")
+
+        # Kinesis Firehose
+        if env_data.get('firehose_streams'):
+            report.append("\n#### Kinesis Data Firehose\n")
+            report.append("| Delivery Stream Name | Status | Destination |")
+            report.append("| :--- | :--- | :--- |")
+            for item in sorted(env_data['firehose_streams'], key=lambda x: x['Name']):
+                report.append(f"| **{item['Name']}** | {item['Status']} | {item['Destination']} |")
 
     return "\n".join(report)
