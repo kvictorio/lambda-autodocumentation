@@ -3,6 +3,9 @@
 aws document generator uses AWS Lambda fucntion to collect data from your infrastructure and create a markdown document for you
 
 It segregates them into seperate files per environment, DEV, QA, TEST, UAT, STAGING, PROD
+The segration is either via the naming convention or the resource tagging.
+
+
 You'll have to indicate the environmental variable for the S3 Bucket it will be placed on in lambda
 
 **S3_BUCKET_NAME** = \<name of your s3 bucket>
