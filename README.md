@@ -1,6 +1,6 @@
 # AWS Document Generator
 
-aws document generator uses AWS Lambda fucntion to collect data from your infrastructure and create a markdown document for you
+aws document generator uses AWS Lambda fucntion to collect data from your infrastructure and create a **markdown** document and **mermaid** diagram for you
 
 It segregates them into seperate files per environment, DEV, QA, TEST, UAT, STAGING, PROD
 The segration is either via the naming convention or the resource tagging.
