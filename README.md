@@ -6,11 +6,11 @@ It segregates them into seperate files per environment, DEV, QA, TEST, UAT, STAG
 The segration is either via the naming convention or the resource tagging.
 
 
-You'll have to indicate the environmental variable for the S3 Bucket it will be placed on in lambda
+#### 1. You'll have to indicate the environmental variable for the S3 Bucket it will be placed on in lambda
 
-**S3_BUCKET_NAME** = \<name of your s3 bucket>
+* **S3_BUCKET_NAME** = \<name of your s3 bucket>
 
-Then you'll need a read policy to allow your lambda to access the resources and write to your S3 bucket.
+#### 2. Then you'll need a read policy to allow your lambda to access the resources and write to your S3 bucket.
 
 
 ```
@@ -37,7 +37,7 @@ Then you'll need a read policy to allow your lambda to access the resources and 
 }
 ```
 
-then add the AWS ReadOnlyAccess policy to your lambda role for the lambda to have access to list down the neccesary information for your document
+#### 3. Then add the AWS ReadOnlyAccess policy to your lambda role for the lambda to have access to list down the neccesary information for your document
 
 Thankyou!
 
