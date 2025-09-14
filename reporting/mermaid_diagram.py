@@ -1,6 +1,6 @@
 # reporting/mermaid_diagram.py
 
-def generate_mermaid_diagram(env_name, env_data, all_resources):
+def generate_mermaid_diagram(env_name, env_data, all_resources, lambda_db_connections):
     """
     Generates an architecture diagram with connections and nested grouping.
     """
@@ -65,11 +65,8 @@ def generate_mermaid_diagram(env_name, env_data, all_resources):
     # Define all necessary Security Group nodes INSIDE the main subgraph
     all_sgs_map = {sg['GroupId']: sg['Name'] for sg in all_resources['ec2'].get('security_groups', [])}
     sg_nodes_to_define = set()
-
-    # Collect all unique SG nodes that need to be created for this environment
     resources_with_sgs = env_data.get('instances', []) + env_data.get('rds_instances', []) + env_data.get('functions', [])
     for resource in resources_with_sgs:
-        # Create a resource ID that can be used in the node_id
         resource_id_safe = (resource.get('InstanceId') or resource.get('Name')).replace('-', '').replace('.', '_')
         for sg_id in resource.get('SecurityGroups', []) or resource.get('SecurityGroupIds', []):
             sg_name = all_sgs_map.get(sg_id, sg_id)
@@ -93,19 +90,6 @@ def generate_mermaid_diagram(env_name, env_data, all_resources):
                 lambda_node_id = "lambda_" + lambda_name.replace('-', '_').replace('.', '_')
                 mermaid_script.append(f'    {api_node_id} -->|"{route["RouteKey"]}"| {lambda_node_id};')
 
-    for conn in lambda_db_connections:
-        lambda_exists = any(f['Name'].replace('-', '_').replace('.', '_') in conn['from'] for f in env_data.get('functions', []))
-        
-        db_exists = False
-        db_resource_types = ['rds_instances', 'neptune_clusters', 'elasticache_clusters']
-        for resource_type in db_resource_types:
-            if any(db['Name'].replace('-', '_') in conn['to'] for db in env_data.get(resource_type, [])):
-                db_exists = True
-                break
-        
-        if lambda_exists and db_exists:
-            mermaid_script.append(f"    {conn['from']} ==>|Uses Env Var: {conn['label']}| {conn['to']};")
-
     for vpc in env_data.get('vpcs', []):
         for lb in vpc.get('LoadBalancers', []):
             lb_node_id = "lb_" + lb['Name'].replace('-', '_').replace('.', '_')
@@ -117,6 +101,17 @@ def generate_mermaid_diagram(env_name, env_data, all_resources):
                         target_id_clean = target['Id'].replace('-', '')
                         mermaid_script.append(f"    {tg_node_id} --> {target_id_clean};")
     
+    for conn in lambda_db_connections:
+        lambda_exists = any(f['Name'].replace('-', '_').replace('.', '_') in conn['from'] for f in env_data.get('functions', []))
+        db_exists = False
+        db_resource_types = ['rds_instances', 'neptune_clusters', 'elasticache_clusters']
+        for resource_type in db_resource_types:
+            if any(db['Name'].replace('-', '_') in conn['to'] for db in env_data.get(resource_type, [])):
+                db_exists = True
+                break
+        if lambda_exists and db_exists:
+            mermaid_script.append(f"    {conn['from']} ==>|Uses Env Var: {conn['label']}| {conn['to']};")
+
     for inst in env_data.get('instances', []):
         inst_node_id = inst['InstanceId'].replace('-', '')
         for sg_id in inst.get('SecurityGroups', []):
