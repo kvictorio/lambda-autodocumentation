@@ -17,6 +17,9 @@ from collectors.neptune_collector import get_neptune_data
 from collectors.dynamodb_collector import get_dynamodb_data
 from collectors.elasticache_collector import get_elasticache_data
 from collectors.queues_collector import get_queues_data
+from collectors.iam_collector import get_iam_data
+from collectors.sns_collector import get_sns_data
+from collectors.eventbridge_collector import get_eventbridge_data
 from reporting.markdown_report import generate_text_report
 from reporting.mermaid_diagram import generate_mermaid_diagram
 
@@ -54,7 +57,10 @@ def lambda_handler(event, context):
         'neptune': get_neptune_data(),
         'dynamodb': get_dynamodb_data(),
         'elasticache': get_elasticache_data(),
-        'queues': get_queues_data()
+        'queues': get_queues_data(),
+        'iam': get_iam_data(),
+        'sns': get_sns_data(),
+        'eventbridge': get_eventbridge_data()
     }
     
     # 2. Consolidate and categorize all resources, safely getting lists
@@ -76,7 +82,11 @@ def lambda_handler(event, context):
         'elasticache_clusters': all_resources['elasticache'].get('clusters', []),
         'sqs_queues': all_resources['queues'].get('sqs_queues', []),
         'kinesis_streams': all_resources['queues'].get('kinesis_streams', []),
-        'firehose_streams': all_resources['queues'].get('firehose_streams', [])
+        'firehose_streams': all_resources['queues'].get('firehose_streams', []),
+        'iam_roles': all_resources['iam'].get('roles', []),
+        'iam_users': all_resources['iam'].get('users', []),
+        'sns_topics': all_resources['sns'].get('topics', []),
+        'eventbridge_buses': all_resources['eventbridge'].get('event_buses', [])
     }
 
     for category_name, resource_list in resource_map.items():
