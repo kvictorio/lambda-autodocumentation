@@ -267,6 +267,38 @@ def generate_text_report(env_name, env_data, all_resources, sg_cross_reference):
     else:
         report.append("_No Cognito User Pools found in this environment._")
 
+    # --- IAM Section ---
+    report.append("\n### Identity & Access Management (IAM)\n")
+    if all_resources.get('iam', {}).get('error'):
+        report.append(f"_{all_resources['iam']['error']}_")
+    else:
+        if env_data.get('iam_roles'):
+            report.append("#### Roles\n")
+            report.append("| Role Name | Attached Policies | Inline Policies | Admin Access? |")
+            report.append("| :--- | :--- | :--- | :--- |")
+            for role in sorted(env_data['iam_roles'], key=lambda x: x['Name']):
+                admin_flag = "⚠️ **YES**" if role['HasAdminAccess'] else "No"
+                policies = ", ".join(role['AttachedPolicies']) if role['AttachedPolicies'] else "_None_"
+                report.append(f"| **{role['Name']}** | {policies} | {role['InlinePolicyCount']} | {admin_flag} |")
+
+            risky_roles = [r for r in env_data['iam_roles'] if r['RiskyPolicies']]
+            if risky_roles:
+                report.append("\n**⚠️ Roles with wildcard/admin-level policies:**\n")
+                for role in sorted(risky_roles, key=lambda x: x['Name']):
+                    reasons = "; ".join(role['RiskyPolicies'])
+                    report.append(f"* **{role['Name']}**: {reasons}")
+        else:
+            report.append("_No IAM Roles found in this environment._")
+
+        if env_data.get('iam_users'):
+            report.append("\n#### Users\n")
+            report.append("| User Name | MFA Enabled? | Active Access Keys | Admin Access? |")
+            report.append("| :--- | :--- | :--- | :--- |")
+            for user in sorted(env_data['iam_users'], key=lambda x: x['Name']):
+                mfa_flag = "Yes" if user['MfaEnabled'] else "⚠️ **No**"
+                admin_flag = "⚠️ **YES**" if user['HasAdminAccess'] else "No"
+                report.append(f"| **{user['Name']}** | {mfa_flag} | {user['ActiveAccessKeys']} | {admin_flag} |")
+
     # --- Queues and Streams Sections  ---
     report.append("\n### Queues & Streams (SQS, Kinesis)\n")
     if all_resources.get('queues', {}).get('error'):
@@ -295,5 +327,47 @@ def generate_text_report(env_name, env_data, all_resources, sg_cross_reference):
             report.append("| :--- | :--- | :--- |")
             for item in sorted(env_data['firehose_streams'], key=lambda x: x['Name']):
                 report.append(f"| **{item['Name']}** | {item['Status']} | {item['Destination']} |")
+
+    # --- SNS & EventBridge Section ---
+    report.append("\n### Pub/Sub & Events (SNS, EventBridge)\n")
+
+    # SNS
+    if all_resources.get('sns', {}).get('error'):
+        report.append(f"_{all_resources['sns']['error']}_")
+    elif env_data.get('sns_topics'):
+        report.append("#### Simple Notification Service (SNS)\n")
+        for topic in sorted(env_data['sns_topics'], key=lambda x: x['Name']):
+            fifo_tag = " `FIFO`" if topic['IsFifo'] else ""
+            report.append(f"* **{topic['Name']}**{fifo_tag}")
+            if topic.get('Subscriptions'):
+                report.append("  | Protocol | Endpoint |")
+                report.append("  | :--- | :--- |")
+                for sub in topic['Subscriptions']:
+                    report.append(f"  | {sub['Protocol']} | `{sub['Endpoint']}` |")
+            else:
+                report.append("  * _No subscriptions_")
+    else:
+        report.append("_No SNS Topics found in this environment._")
+
+    # EventBridge
+    if all_resources.get('eventbridge', {}).get('error'):
+        report.append(f"\n_{all_resources['eventbridge']['error']}_")
+    elif env_data.get('eventbridge_buses'):
+        report.append("\n#### EventBridge\n")
+        for bus in sorted(env_data['eventbridge_buses'], key=lambda x: x['Name']):
+            report.append(f"* **Event Bus: {bus['Name']}**")
+            if bus.get('Rules'):
+                for rule in sorted(bus['Rules'], key=lambda x: x['Name']):
+                    trigger = rule['ScheduleExpression'] if rule['ScheduleExpression'] != 'N/A' else (
+                        "Event Pattern" if rule['HasEventPattern'] else "N/A"
+                    )
+                    report.append(f"  * **Rule: {rule['Name']}** (State: `{rule['State']}`, Trigger: `{trigger}`)")
+                    if rule.get('Targets'):
+                        for target in rule['Targets']:
+                            report.append(f"    * Target: `{target['Arn']}`")
+            else:
+                report.append("  * _No rules defined_")
+    else:
+        report.append("\n_No EventBridge Buses found in this environment._")
 
     return "\n".join(report)
