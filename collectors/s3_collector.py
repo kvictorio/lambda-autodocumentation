@@ -1,7 +1,6 @@
 # collectors/s3_collector.py
-import boto3
 from botocore.exceptions import ClientError
-from utils import get_environment_from_name
+from utils import get_environment_from_name, get_client
 
 def get_s3_data():
     """
@@ -9,7 +8,7 @@ def get_s3_data():
     Includes error handling for missing IAM permissions.
     """
     try:
-        s3_client = boto3.client('s3')
+        s3_client = get_client('s3')
         buckets_data = []
         
         # This API call requires s3:ListAllMyBuckets permission

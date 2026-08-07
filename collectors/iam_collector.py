@@ -1,7 +1,6 @@
 # collectors/iam_collector.py
-import boto3
 from botocore.exceptions import ClientError
-from utils import get_environment_from_name
+from utils import get_environment_from_name, get_client, safe_tags
 
 ADMIN_POLICY_ARN = 'arn:aws:iam::aws:policy/AdministratorAccess'
 
@@ -38,7 +37,7 @@ def get_iam_data():
     Includes error handling for missing IAM permissions.
     """
     try:
-        iam_client = boto3.client('iam')
+        iam_client = get_client('iam')
         roles_data = []
         users_data = []
         policy_doc_cache = {}  # policy_arn -> document, avoids re-fetching shared/attached policies
@@ -61,7 +60,12 @@ def get_iam_data():
         for page in paginator_roles.paginate():
             for role in page['Roles']:
                 role_name = role['RoleName']
-                tags = role.get('Tags', [])
+                # list_roles does NOT return tags, so role.get('Tags') was always
+                # empty and environment detection silently fell back to the name.
+                tags = safe_tags(
+                    lambda n=role_name: iam_client.list_role_tags(RoleName=n).get('Tags', []),
+                    f"IAM role {role_name}"
+                )
 
                 risky_policies = []
                 has_admin_access = False
@@ -104,7 +108,11 @@ def get_iam_data():
         for page in paginator_users.paginate():
             for user in page['Users']:
                 user_name = user['UserName']
-                tags = user.get('Tags', [])
+                # list_users does NOT return tags either.
+                tags = safe_tags(
+                    lambda n=user_name: iam_client.list_user_tags(UserName=n).get('Tags', []),
+                    f"IAM user {user_name}"
+                )
 
                 mfa_devices = iam_client.list_mfa_devices(UserName=user_name).get('MFADevices', [])
                 access_keys = iam_client.list_access_keys(UserName=user_name).get('AccessKeyMetadata', [])

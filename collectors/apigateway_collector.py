@@ -1,6 +1,5 @@
-import boto3
 from botocore.exceptions import ClientError
-from utils import get_environment_from_name
+from utils import get_environment_from_name, get_client
 
 def get_apigateway_data():
     """
@@ -11,7 +10,7 @@ def get_apigateway_data():
         apis_data = []
         
         # --- API Gateway v2 (HTTP/WebSocket) ---
-        apigw_v2_client = boto3.client('apigatewayv2')
+        apigw_v2_client = get_client('apigatewayv2')
         for api in apigw_v2_client.get_apis()['Items']:
             api_id = api['ApiId']
             authorizers_map = {a['AuthorizerId']: a['Name'] for a in apigw_v2_client.get_authorizers(ApiId=api_id).get('Items', [])}
@@ -29,7 +28,7 @@ def get_apigateway_data():
             apis_data.append({ 'Name': api['Name'], 'ApiId': api_id, 'ProtocolType': api['ProtocolType'], 'Routes': sorted(routes_details, key=lambda x: x['RouteKey']), 'Environment': get_environment_from_name(api['Name'], api.get('Tags', {})) })
 
         # --- API Gateway v1 (REST) ---
-        apigw_v1_client = boto3.client('apigateway')
+        apigw_v1_client = get_client('apigateway')
         for api in apigw_v1_client.get_rest_apis()['items']:
             api_id = api['id']
             authorizers_map = {a['id']: a['name'] for a in apigw_v1_client.get_authorizers(restApiId=api_id).get('items', [])}

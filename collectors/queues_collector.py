@@ -1,7 +1,6 @@
 # collectors/queues_collector.py
-import boto3
 from botocore.exceptions import ClientError
-from utils import get_environment_from_name
+from utils import get_environment_from_name, get_client, safe_tags
 
 def get_queues_data():
     """
@@ -9,9 +8,9 @@ def get_queues_data():
     Includes error handling for missing IAM permissions.
     """
     try:
-        sqs_client = boto3.client('sqs')
-        kinesis_client = boto3.client('kinesis')
-        firehose_client = boto3.client('firehose')
+        sqs_client = get_client('sqs')
+        kinesis_client = get_client('kinesis')
+        firehose_client = get_client('firehose')
         
         sqs_queues = []
         kinesis_streams = []
@@ -23,11 +22,16 @@ def get_queues_data():
             for queue_url in page.get('QueueUrls', []):
                 queue_name = queue_url.split('/')[-1]
                 attrs = sqs_client.get_queue_attributes(QueueUrl=queue_url, AttributeNames=['All']).get('Attributes', {})
+                tags = safe_tags(
+                    lambda url=queue_url: sqs_client.list_queue_tags(QueueUrl=url).get('Tags', {}),
+                    f"SQS queue {queue_name}"
+                )
+
                 sqs_queues.append({
                     'Name': queue_name,
                     'Type': 'Standard' if 'FifoQueue' not in attrs else 'FIFO',
                     'MessageCount': attrs.get('ApproximateNumberOfMessages', 'N/A'),
-                    'Environment': get_environment_from_name(queue_name)
+                    'Environment': get_environment_from_name(queue_name, tags)
                 })
         
         # 2. Get Kinesis Data Streams (this part was correct)
@@ -35,11 +39,16 @@ def get_queues_data():
         for page in paginator_kinesis.paginate():
             for stream_name in page.get('StreamNames', []):
                 details = kinesis_client.describe_stream(StreamName=stream_name).get('StreamDescription', {})
+                tags = safe_tags(
+                    lambda n=stream_name: kinesis_client.list_tags_for_stream(StreamName=n).get('Tags', []),
+                    f"Kinesis stream {stream_name}"
+                )
+
                 kinesis_streams.append({
                     'Name': stream_name,
                     'Status': details.get('StreamStatus'),
                     'Shards': len(details.get('Shards', [])),
-                    'Environment': get_environment_from_name(stream_name)
+                    'Environment': get_environment_from_name(stream_name, tags)
                 })
 
         # 3. Get Kinesis Data Firehose Delivery Streams using manual pagination
@@ -64,11 +73,16 @@ def get_queues_data():
                 dest_keys = [key for key in details['Destinations'][0] if 'DestinationDescription' in key]
                 if dest_keys:
                     destination_type = dest_keys[0].replace('DestinationDescription', '')
+            fh_tags = safe_tags(
+                lambda n=stream_name: firehose_client.list_tags_for_delivery_stream(DeliveryStreamName=n).get('Tags', []),
+                f"Firehose stream {stream_name}"
+            )
+
             firehose_streams.append({
                 'Name': stream_name,
                 'Status': details.get('DeliveryStreamStatus'),
                 'Destination': destination_type,
-                'Environment': get_environment_from_name(stream_name)
+                'Environment': get_environment_from_name(stream_name, fh_tags)
             })
 
         return {

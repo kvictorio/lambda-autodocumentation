@@ -1,7 +1,6 @@
 # collectors/sns_collector.py
-import boto3
 from botocore.exceptions import ClientError
-from utils import get_environment_from_name
+from utils import get_environment_from_name, get_client, safe_tags
 
 
 def get_sns_data():
@@ -10,7 +9,7 @@ def get_sns_data():
     Includes error handling for missing IAM permissions.
     """
     try:
-        sns_client = boto3.client('sns')
+        sns_client = get_client('sns')
         topics_data = []
 
         paginator_topics = sns_client.get_paginator('list_topics')
@@ -31,6 +30,11 @@ def get_sns_data():
                             'SubscriptionArn': sub.get('SubscriptionArn', 'N/A')
                         })
 
+                tags = safe_tags(
+                    lambda arn=topic_arn: sns_client.list_tags_for_resource(ResourceArn=arn).get('Tags', []),
+                    f"SNS topic {topic_name}"
+                )
+
                 topics_data.append({
                     'Name': topic_name,
                     'TopicArn': topic_arn,
@@ -38,7 +42,7 @@ def get_sns_data():
                     'IsFifo': topic_name.endswith('.fifo'),
                     'SubscriptionsConfirmed': attrs.get('SubscriptionsConfirmed', 'N/A'),
                     'Subscriptions': subscriptions,
-                    'Environment': get_environment_from_name(topic_name)
+                    'Environment': get_environment_from_name(topic_name, tags)
                 })
 
         return {'topics': topics_data}

@@ -1,8 +1,10 @@
 # lambda_function.py
 import os
 import json
+import traceback
 from datetime import datetime
-import boto3
+
+from utils import get_client
 
 # Import all our custom functions from the new modules
 from collectors.ec2_collector import get_ec2_data
@@ -30,7 +32,7 @@ if not S3_BUCKET_NAME:
 
 def upload_to_s3(content, bucket, object_name):
     """Uploads a string content to an S3 object."""
-    s3_client = boto3.client('s3')
+    s3_client = get_client('s3')
     try:
         s3_client.put_object(Body=content, Bucket=bucket, Key=object_name)
         print(f"Successfully uploaded {object_name} to {bucket}")
@@ -38,30 +40,152 @@ def upload_to_s3(content, bucket, object_name):
         print(f"Error uploading file: {e}")
         raise e
 
+    # Fallback shape returned for a collector that fails, keyed by the same
+    # dict keys lambda_function.py/reporting modules expect to find populated
+    # (as empty lists) so downstream code never KeyErrors on a missing field.
+COLLECTOR_FALLBACKS = {
+    'ec2': {'instances': [], 'security_groups': [], 'subnet_map': {}, 'sg_map': {}},
+    'lambda': {'functions': [], 'event_source_mappings': []},
+    's3': {'buckets': []},
+    'apigateway': {'apis': []},
+    'vpc': {'vpcs': []},
+    'rds': {'instances': []},
+    'cognito': {'user_pools': []},
+    'container': {'ecr_repositories': [], 'eks_clusters': [], 'ecs_clusters': []},
+    'neptune': {'clusters': []},
+    'dynamodb': {'tables': []},
+    'elasticache': {'clusters': []},
+    'queues': {'sqs_queues': [], 'kinesis_streams': [], 'firehose_streams': []},
+    'iam': {'roles': [], 'users': []},
+    'sns': {'topics': []},
+    'eventbridge': {'event_buses': []},
+}
+
+
+def safe_collect(collector_name, collector_func):
+    """
+    Runs a single collector in isolation. If it raises ANYTHING (throttling
+    that outlasts the retry budget, an unexpected ClientError, a bug in the
+    collector itself, etc.), the failure is logged and a well-formed empty
+    result is returned instead - so the other 14 collectors and the rest of
+    the report generation still complete successfully.
+    """
+    try:
+        return collector_func()
+    except Exception as e:
+        print(f"ERROR: Collector '{collector_name}' failed unexpectedly and was skipped: {e}")
+        traceback.print_exc()
+        fallback = dict(COLLECTOR_FALLBACKS[collector_name])
+        fallback['error'] = f'(COLLECTION FAILED: {type(e).__name__}: {e})'
+        return fallback
+
+
+def _emit_dry_run(timestamp, now, failed_collectors):
+    """Builds a review sheet of every categorisation decision made this run."""
+    from utils import ENV_AUDIT
+
+    by_env = {}
+    for entry in ENV_AUDIT:
+        by_env.setdefault(entry['environment'], []).append(entry)
+
+    lines = [
+        "# Environment Detection - Dry Run",
+        f"_Generated on {now.strftime('%Y-%m-%d %H:%M:%S')}. No reports were written._\n",
+        "Review this before trusting a full run. Anything landing in `no-category` "
+        "or flagged ambiguous below needs either a proper `Environment` tag or an "
+        "`ENV_ALIASES_JSON` override.\n",
+    ]
+
+    if failed_collectors:
+        lines.append(f"> ⚠️ Collectors that failed this run: **{', '.join(sorted(failed_collectors))}**\n")
+
+    total = len(ENV_AUDIT)
+    by_tag = sum(1 for e in ENV_AUDIT if e['source'].startswith('tag:'))
+    by_name = sum(1 for e in ENV_AUDIT if e['source'] == 'name')
+    uncategorized = len(by_env.get('no-category', []))
+    lines.append("## Summary\n")
+    lines.append("| Metric | Count |")
+    lines.append("| :--- | ---: |")
+    lines.append(f"| Resources categorised | {total} |")
+    lines.append(f"| Resolved from a tag (reliable) | {by_tag} |")
+    lines.append(f"| Guessed from the name (verify these) | {by_name} |")
+    lines.append(f"| Uncategorised | {uncategorized} |")
+
+    ambiguous = [e for e in ENV_AUDIT if e.get('ambiguous')]
+    if ambiguous:
+        lines.append("\n## ⚠️ Ambiguous names (matched more than one environment)\n")
+        lines.append("| Resource | Matched | Resolved to |")
+        lines.append("| :--- | :--- | :--- |")
+        for e in sorted(ambiguous, key=lambda x: x['name']):
+            lines.append(f"| `{e['name']}` | {', '.join(e.get('all_matches') or [])} | **{e['environment']}** |")
+
+    lines.append("\n## Detected environments\n")
+    for env_name in sorted(by_env):
+        entries = by_env[env_name]
+        lines.append(f"\n### `{env_name}` ({len(entries)} resources)\n")
+        lines.append("| Resource | Detected via |")
+        lines.append("| :--- | :--- |")
+        for e in sorted(entries, key=lambda x: x['name']):
+            lines.append(f"| `{e['name']}` | {e['source']} |")
+
+    content = "\n".join(lines)
+    key = f'reports/{timestamp}/DRY-RUN-environment-detection.md'
+    upload_to_s3(content, S3_BUCKET_NAME, key)
+    print(f"Dry run complete: {total} resources, {by_name} name-guessed, {uncategorized} uncategorised.")
+    return {
+        'statusCode': 200,
+        'body': json.dumps({
+            'mode': 'dry_run',
+            'resources_categorized': total,
+            'resolved_by_tag': by_tag,
+            'guessed_by_name': by_name,
+            'uncategorized': uncategorized,
+            'ambiguous': len(ambiguous),
+            'report': f's3://{S3_BUCKET_NAME}/{key}',
+        })
+    }
+
+
 def lambda_handler(event, context):
     """Main function executed by AWS Lambda."""
     print("Starting infrastructure documentation process...")
     now = datetime.now()
     timestamp = now.strftime("%Y-%m-%d")
 
-    # 1. Fetch data from all services into a single dictionary
+    # 1. Fetch data from all services into a single dictionary.
+    # Each collector runs independently via safe_collect - a failure in one
+    # (e.g. IAM throttling) no longer prevents the other 14 from completing
+    # or the report from being generated and uploaded.
     all_resources = {
-        'ec2': get_ec2_data(),
-        'lambda': get_lambda_data(),
-        's3': get_s3_data(),
-        'apigateway': get_apigateway_data(),
-        'vpc': get_vpc_data(),
-        'rds': get_rds_data(),
-        'cognito': get_cognito_data(),
-        'container': get_container_data(),
-        'neptune': get_neptune_data(),
-        'dynamodb': get_dynamodb_data(),
-        'elasticache': get_elasticache_data(),
-        'queues': get_queues_data(),
-        'iam': get_iam_data(),
-        'sns': get_sns_data(),
-        'eventbridge': get_eventbridge_data()
+        'ec2': safe_collect('ec2', get_ec2_data),
+        'lambda': safe_collect('lambda', get_lambda_data),
+        's3': safe_collect('s3', get_s3_data),
+        'apigateway': safe_collect('apigateway', get_apigateway_data),
+        'vpc': safe_collect('vpc', get_vpc_data),
+        'rds': safe_collect('rds', get_rds_data),
+        'cognito': safe_collect('cognito', get_cognito_data),
+        'container': safe_collect('container', get_container_data),
+        'neptune': safe_collect('neptune', get_neptune_data),
+        'dynamodb': safe_collect('dynamodb', get_dynamodb_data),
+        'elasticache': safe_collect('elasticache', get_elasticache_data),
+        'queues': safe_collect('queues', get_queues_data),
+        'iam': safe_collect('iam', get_iam_data),
+        'sns': safe_collect('sns', get_sns_data),
+        'eventbridge': safe_collect('eventbridge', get_eventbridge_data),
     }
+
+    failed_collectors = [name for name, data in all_resources.items() if data.get('error', '').startswith('(COLLECTION FAILED')]
+    if failed_collectors:
+        print(f"WARNING: The following collectors failed and were skipped: {', '.join(failed_collectors)}")
+
+    # 1b. Dry-run mode: emit only how each resource was categorised, so the
+    # environment detection can be sanity-checked against a project's real
+    # naming/tagging conventions BEFORE trusting a full report.
+    # Trigger with {"dry_run": true} in the test event, or DRY_RUN=true.
+    dry_run = bool(event.get('dry_run')) if isinstance(event, dict) else False
+    dry_run = dry_run or os.environ.get('DRY_RUN', '').lower() in ('1', 'true', 'yes')
+    if dry_run:
+        return _emit_dry_run(timestamp, now, failed_collectors)
     
     # 2. Consolidate and categorize all resources, safely getting lists
     categorized_data = {}
@@ -136,6 +260,11 @@ def lambda_handler(event, context):
     main_readme_content = [f"# AWS Infrastructure Report", f"_Generated on {now.strftime('%Y-%m-%d %H:%M:%S')}_", "\n## Discovered Environments\n"]
     if not categorized_data:
         main_readme_content.append("\n_No resources were found across the tracked environments, or access was denied for all services._")
+
+    if failed_collectors:
+        main_readme_content.append("\n## ⚠️ Incomplete Data\n")
+        main_readme_content.append(f"The following collectors failed and were skipped, so this report is incomplete for those services: **{', '.join(sorted(failed_collectors))}**.")
+        main_readme_content.append("Check the Lambda's CloudWatch logs for this run for the specific error.\n")
 
     for env_name, env_data in sorted(categorized_data.items()):
         print(f"Generating documents for environment: {env_name}")

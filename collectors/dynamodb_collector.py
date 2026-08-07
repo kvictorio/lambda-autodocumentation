@@ -1,7 +1,6 @@
 # collectors/dynamodb_collector.py
-import boto3
 from botocore.exceptions import ClientError
-from utils import get_environment_from_name
+from utils import get_environment_from_name, get_client, safe_tags
 
 def get_dynamodb_data():
     """
@@ -9,7 +8,7 @@ def get_dynamodb_data():
     Includes error handling for missing IAM permissions.
     """
     try:
-        dynamodb_client = boto3.client('dynamodb')
+        dynamodb_client = get_client('dynamodb')
         tables_data = []
         
         paginator = dynamodb_client.get_paginator('list_tables')
@@ -28,6 +27,11 @@ def get_dynamodb_data():
                 if 'BillingModeSummary' in details and details['BillingModeSummary']['BillingMode'] == 'PAY_PER_REQUEST':
                     billing_mode = "On-Demand"
                 
+                tags = safe_tags(
+                    lambda arn=details.get('TableArn'): dynamodb_client.list_tags_of_resource(ResourceArn=arn).get('Tags', []),
+                    f"DynamoDB table {table_name}"
+                ) if details.get('TableArn') else None
+
                 tables_data.append({
                     'Name': table_name,
                     'Status': details.get('TableStatus'),
@@ -35,7 +39,7 @@ def get_dynamodb_data():
                     'TableSizeMB': round(details.get('TableSizeBytes', 0) / (1024 * 1024), 2),
                     'PrimaryKey': ", ".join(key_schema),
                     'BillingMode': billing_mode,
-                    'Environment': get_environment_from_name(table_name)
+                    'Environment': get_environment_from_name(table_name, tags)
                 })
         
         return {'tables': tables_data}

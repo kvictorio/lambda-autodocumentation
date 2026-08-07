@@ -1,7 +1,6 @@
 # collectors/elasticache_collector.py
-import boto3
 from botocore.exceptions import ClientError
-from utils import get_environment_from_name
+from utils import get_environment_from_name, get_client, safe_tags
 
 def get_elasticache_data():
     """
@@ -9,7 +8,7 @@ def get_elasticache_data():
     Includes error handling for missing IAM permissions.
     """
     try:
-        elasticache_client = boto3.client('elasticache')
+        elasticache_client = get_client('elasticache')
         clusters_data = []
         
         # 1. Get Redis Replication Groups
@@ -19,13 +18,19 @@ def get_elasticache_data():
                 primary_endpoint = group.get('NodeGroups', [{}])[0].get('PrimaryEndpoint', {})
                 endpoint_address = primary_endpoint.get('Address', 'N/A')
                 
+                rg_arn = group.get('ARN')
+                tags = safe_tags(
+                    lambda arn=rg_arn: elasticache_client.list_tags_for_resource(ResourceName=arn).get('TagList', []),
+                    f"ElastiCache replication group {group['ReplicationGroupId']}"
+                ) if rg_arn else None
+
                 clusters_data.append({
                     'Name': group['ReplicationGroupId'],
                     'Engine': 'redis',
                     'NodeType': group['CacheNodeType'],
                     'Status': group['Status'],
                     'Endpoint': endpoint_address,
-                    'Environment': get_environment_from_name(group['ReplicationGroupId'])
+                    'Environment': get_environment_from_name(group['ReplicationGroupId'], tags)
                 })
         
         # 2. Get all cache clusters and find the standalone Memcached ones
@@ -37,13 +42,19 @@ def get_elasticache_data():
                     endpoint = cluster.get('ConfigurationEndpoint', {})
                     endpoint_address = endpoint.get('Address', 'N/A')
                     
+                    cc_arn = cluster.get('ARN')
+                    tags = safe_tags(
+                        lambda arn=cc_arn: elasticache_client.list_tags_for_resource(ResourceName=arn).get('TagList', []),
+                        f"ElastiCache cluster {cluster['CacheClusterId']}"
+                    ) if cc_arn else None
+
                     clusters_data.append({
                         'Name': cluster['CacheClusterId'],
                         'Engine': 'memcached',
                         'NodeType': cluster['CacheNodeType'],
                         'Status': cluster['CacheClusterStatus'],
                         'Endpoint': endpoint_address,
-                        'Environment': get_environment_from_name(cluster['CacheClusterId'])
+                        'Environment': get_environment_from_name(cluster['CacheClusterId'], tags)
                     })
 
         return {'clusters': clusters_data}

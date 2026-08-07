@@ -1,7 +1,6 @@
 # collectors/neptune_collector.py
-import boto3
 from botocore.exceptions import ClientError
-from utils import get_environment_from_name
+from utils import get_environment_from_name, get_client
 
 def get_neptune_data():
     """
@@ -9,7 +8,7 @@ def get_neptune_data():
     Includes error handling for missing IAM permissions.
     """
     try:
-        neptune_client = boto3.client('neptune')
+        neptune_client = get_client('neptune')
         clusters_data = []
         
         paginator = neptune_client.get_paginator('describe_db_clusters')

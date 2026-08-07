@@ -1,6 +1,5 @@
-import boto3
 from botocore.exceptions import ClientError
-from utils import get_environment_from_name
+from utils import get_environment_from_name, get_client, safe_tags
 
 def get_lambda_data():
     """
@@ -8,7 +7,7 @@ def get_lambda_data():
     environment variables, and event source triggers.
     """
     try:
-        lambda_client = boto3.client('lambda')
+        lambda_client = get_client('lambda')
         functions_data = []
         event_source_mappings = [] # <-- ADDED
         
@@ -17,11 +16,17 @@ def get_lambda_data():
         for page in paginator.paginate():
             for function in page['Functions']:
                 vpc_config = function.get('VpcConfig')
-                
+
+                # list_functions does not return tags, so fetch them per function.
+                tags = safe_tags(
+                    lambda arn=function['FunctionArn']: lambda_client.list_tags(Resource=arn).get('Tags', {}),
+                    f"Lambda function {function['FunctionName']}"
+                )
+
                 function_details = {
                     'Name': function['FunctionName'],
                     'Runtime': function.get('Runtime', 'Container/Unknown'),
-                    'Environment': get_environment_from_name(function['FunctionName']),
+                    'Environment': get_environment_from_name(function['FunctionName'], tags),
                     'EnvironmentVariables': function.get('Environment', {}).get('Variables', {}),
                     'VpcId': None,
                     'SubnetIds': [],

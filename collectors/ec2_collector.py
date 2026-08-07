@@ -1,7 +1,6 @@
 # collectors/ec2_collector.py
-import boto3
 from botocore.exceptions import ClientError
-from utils import get_environment_from_name
+from utils import get_environment_from_name, get_client
 
 def get_ec2_data():
     """
@@ -9,7 +8,7 @@ def get_ec2_data():
     Includes error handling for missing IAM permissions.
     """
     try:
-        ec2_client = boto3.client('ec2')
+        ec2_client = get_client('ec2')
         
         instances_data = []
         sg_data = []

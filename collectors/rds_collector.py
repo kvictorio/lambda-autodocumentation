@@ -1,7 +1,6 @@
 # collectors/rds_collector.py
-import boto3
 from botocore.exceptions import ClientError
-from utils import get_environment_from_name
+from utils import get_environment_from_name, get_client
 
 def get_rds_data():
     """
@@ -9,7 +8,7 @@ def get_rds_data():
     Includes error handling for missing IAM permissions.
     """
     try:
-        rds_client = boto3.client('rds')
+        rds_client = get_client('rds')
         instances_data = []
         
         paginator = rds_client.get_paginator('describe_db_instances')
